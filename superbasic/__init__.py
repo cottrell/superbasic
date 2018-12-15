@@ -1,10 +1,12 @@
-import joblib
 import os
+import json
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pandas as pd
+import joblib
 from joblib._store_backends import FileSystemStoreBackend
 
 def write_parquet(df, dirname):
-    import pyarrow as pa
-    import pyarrow.parquet as pq
     print('writing {}'.format(dirname))
     table = pa.Table.from_pandas(df, preserve_index=False)
     # TODO consider swap to use dataset but then need the threadsafe to handle directories
@@ -12,7 +14,6 @@ def write_parquet(df, dirname):
     # pq.write_table(table, filename)
 
 def write_json(obj, dirname):
-    import json
     # from . import hash
     # filename = os.path.join(dirname, hash(obj)) + '.json'
     filename = os.path.join(dirname, 'data') + '.json'
@@ -21,7 +22,7 @@ def write_json(obj, dirname):
 
 def write_object(d, dirname):
     # handle all the cases, if dict, split out the pandas pieces
-    import pandas as pd
+    # TODO: use zarr or bcolz for numpy arrays
     if isinstance(d, dict):
         pd_obj = {k: v for k, v in d.items() if isinstance(v, pd.DataFrame)}
         # TODO: consider numpy and bcolz or whatever you want for that
@@ -38,9 +39,7 @@ def write_object(d, dirname):
 
 def read_object(dirname):
     filename = os.path.join(dirname, 'data') + '.json'
-    import pandas as pd
     if os.path.exists(filename):
-        import json
         json_obj = json.load(open(filename))
         pd_obj = json_obj.pop('_pandas_placeholder_object', [])
         for k in pd_obj:
