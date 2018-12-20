@@ -4,7 +4,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pandas as pd
 import joblib
-from joblib._store_backends import FileSystemStoreBackend
+import joblib.memory
+from joblib._store_backends import FileSystemStoreBackend, StoreBackendBase, mkdirp
 
 def write_parquet(df, dirname):
     print('writing {}'.format(dirname))
@@ -71,11 +72,11 @@ class FileSystemStoreBackend2(FileSystemStoreBackend):
         except Exception as e:  # noqa: E722
             " Race condition in the creation of the directory "
             raise e
-    def _concurrency_safe_write(self, to_write, filename, write_func):
-        """Writes an object into a file in a concurrency-safe way."""
-        temporary_filename = concurrency_safe_write(to_write,
-                                                    filename, write_func)
-        self._move_item(temporary_filename, filename)
+    # def _concurrency_safe_write(self, to_write, filename, write_func):
+    #     """Writes an object into a file in a concurrency-safe way."""
+    #     temporary_filename = concurrency_safe_write(to_write,
+    #                                                 filename, write_func)
+    #     self._move_item(temporary_filename, filename)
     def load_item(self, path, verbose=1, msg=None):
         """Load an item from the store given its path as a list of
            strings."""
@@ -104,3 +105,37 @@ class FileSystemStoreBackend2(FileSystemStoreBackend):
         return read_object(filename)
 
 joblib.memory.register_store_backend('superbasic', FileSystemStoreBackend2)
+
+class SingleWriteMultiReadMemory():
+    def __init__(self, location=None, readonly_locations=None, backend='superbasic', **kwargs):
+        self.writeable_memory = joblib.memory.Memory(location=location, backend=backend, **kwargs)
+        self.readonly_memory = list()
+        for k in readonly_locations:
+            self.readonly_memory.append(joblib.memory.Memory(location=k, backend=backend, **kwargs))
+    def cache(self, func=None, ignore=None, verbose=None, mmap_mode=False, strategy='any'):
+        return SingleWriteMultiReadMemorizedFunc(func, self.writeable_memory, readonly_memory=self.readonly_memory)
+
+class SingleWriteMultiReadMemorizedFunc():
+    def __init__(self, func, writeable_memory, readonly_memory=None):
+        self.writeable_cache = writeable_memory.cache(func)
+        readonly_memory = readonly_memory if readonly_memory is not None else []
+        self.readonly_caches = [x.cache(func) for x in readonly_memory]
+        self.func = func
+        self.clear = self.writeable_cache.clear
+    def __call__(self, *args, **kwargs):
+        return self.call(*args, **kwargs)
+    def check_call_in_cache(self, *args, **kwargs):
+        for x in [self.writeable_cache] + self.readonly_caches:
+            if x.check_call_in_cache(*args, **kwargs):
+                return True
+        return False
+    def call(self, *args, **kwargs):
+        for x in [self.writeable_cache] + self.readonly_caches:
+            if x.check_call_in_cache(*args, **kwargs):
+                return x.call(*args, **kwargs)
+        return self.writeable_cache.call(*args, **kwargs)
+    def call_and_shelve(self, *args, **kwargs):
+        for x in [self.writeable_cache] + self.readonly_caches:
+            if x.check_call_in_cache(*args, **kwargs):
+                return x.call_and_shelve(*args, **kwargs)
+        return self.writeable_cache.call_and_shelve(*args, **kwargs)
