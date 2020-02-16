@@ -9,9 +9,9 @@ from joblib._store_backends import FileSystemStoreBackend, StoreBackendBase, mkd
 
 def write_parquet(df, dirname):
     print('writing {}'.format(dirname))
-    table = pa.Table.from_pandas(df, preserve_index=False)
+    table = pa.Table.from_pandas(df)
     # TODO consider swap to use dataset but then need the threadsafe to handle directories
-    pq.write_to_dataset(table, root_path=dirname, partition_cols=None, preserve_index=False)
+    pq.write_to_dataset(table, root_path=dirname, partition_cols=None)
     # pq.write_table(table, filename)
 
 def write_json(obj, dirname):
